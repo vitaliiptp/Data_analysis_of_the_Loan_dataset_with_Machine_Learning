@@ -1,0 +1,281 @@
+import itertools
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.ticker import NullFormatter
+import pandas as pd
+import numpy as np
+import matplotlib.ticker as ticker
+from sklearn import preprocessing
+import ibm_db
+import ibm_db_dbi
+
+#Download the dataset from IBM Db2
+dsn = "DRIVER={{IBM DB2 ODBC DRIVER}};"+ \
+    "DATABASE=BLUDB;" + \
+    "HOSTNAME=dashdb-txn-sbox-yp-dal09-10.services.dal.bluemix.net;" + \
+    "PORT=50000;" + \
+    "PROTOCOL=TCPIP;" + \
+    "UID=ghw47050;" + \
+    "PWD=crh@37vqs3w7k63f;"
+hdbc = ibm_db.connect(dsn, "", "")
+hdbi = ibm_db_dbi.Connection(hdbc)
+
+sql = "SELECT * FROM loan_train"
+
+#Load Data From CSV File
+df = df = pd.read_sql(sql, hdbi)
+df.head()
+df.shape
+
+#Convert to date time object
+df['due_date'] = pd.to_datetime(df['due_date'])
+df['effective_date'] = pd.to_datetime(df['effective_date'])
+df.head()
+
+#Data visualization and pre-processing
+df['loan_status'].value_counts()
+
+import seaborn as sns
+
+bins = np.linspace(df.Principal.min(), df.Principal.max(), 10)
+g = sns.FacetGrid(df, col="Gender", hue="loan_status", palette="Set1", col_wrap=2)
+g.map(plt.hist, 'Principal', bin
+s=bins, ec="k")
+
+g.axes[-1].legend()
+plt.show()
+
+bins = np.linspace(df.age.min(), df.age.max(), 10)
+g = sns.FacetGrid(df, col="Gender", hue="loan_status", palette="Set1", col_wrap=2)
+g.map(plt.hist, 'age', bins=bins, ec="k")
+
+g.axes[-1].legend()
+plt.show()
+
+#Pre-processing: Feature selection/extraction
+df['dayofweek'] = df['effective_date'].dt.dayofweek
+bins = np.linspace(df.dayofweek.min(), df.dayofweek.max(), 10)
+g = sns.FacetGrid(df, col="Gender", hue="loan_status", palette="Set1", col_wrap=2)
+g.map(plt.hist, 'dayofweek', bins=bins, ec="k")
+g.axes[-1].legend()
+plt.show()
+
+df['weekend'] = df['dayofweek'].apply(lambda x: 1 if (x>3)  else 0)
+df.head()
+
+#Convert Categorical features to numerical values
+df.groupby(['Gender'])['loan_status'].value_counts(normalize=True)
+
+#convert male to 0 and female to 1:
+df['Gender'].replace(to_replace=['male','female'], value=[0,1],inplace=True)
+df.head()
+
+df.groupby(['education'])['loan_status'].value_counts(normalize=True)
+
+df[['Principal','terms','age','Gender','education']].head()
+
+#Use one hot encoding technique to conver categorical varables to binary variables and append them to the feature Data Frame
+Feature = df[['Principal','terms','age','Gender','weekend']]
+Feature = pd.concat([Feature,pd.get_dummies(df['education'])], axis=1)
+Feature.drop(['Master or Above'], axis = 1,inplace=True)
+Feature.head()
+
+#Feature selection
+X = Feature
+X[0:5]
+y = df['loan_status'].values
+y[0:5]
+
+#Data normalization
+X= preprocessing.StandardScaler().fit(X).transform(X)
+X[0:5]
+
+#Classification
+#K Nearest Neighbor(KNN)
+#Train_Test_Split
+from sklearn.model_selection import train_test_split
+X_train_knn, X_test_knn, y_train_knn, y_test_knn = train_test_split( X, y, test_size=0.3, random_state=4)
+print ('Train set:', X_train_knn.shape,  y_train_knn.shape)
+print ('Test set:', X_test_knn.shape,  y_test_knn.shape)
+
+#Training
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn import metrics
+
+
+#Accuracy for different Ks
+Ks = len(X_train_knn)
+mean_acc = np.zeros((Ks-1))
+std_acc = np.zeros((Ks-1))
+ConfustionMx = [];
+for n in range(1,Ks):
+    
+    #Train Model and Predict  
+    neigh = KNeighborsClassifier(n_neighbors = n).fit(X_train_knn,y_train_knn)
+    yhat_knn=neigh.predict(X_test_knn)
+    mean_acc[n-1] = metrics.accuracy_score(y_test_knn, yhat_knn)
+
+    
+    std_acc[n-1]=np.std(yhat_knn==y_test_knn)/np.sqrt(yhat_knn.shape[0])
+ 
+    
+print( "The best accuracy was with", mean_acc.max(), "with k=", mean_acc.argmax()+1) 
+
+#Train Model with optimal k
+neigh = KNeighborsClassifier(n_neighbors = mean_acc.argmax()+1).fit(X_train_knn,y_train_knn)
+yhat_knn=neigh.predict(X_test_knn)
+
+#Accuracy_evaluation
+from sklearn import metrics
+from sklearn.metrics import f1_score
+from sklearn.metrics import jaccard_similarity_score
+
+
+print("KNN Train set Accuracy: ", metrics.accuracy_score(y_train_knn, neigh.predict(X_train_knn)))
+print("KNN Test set Accuracy: ", metrics.accuracy_score(y_test_knn, yhat_knn))
+
+print("Avg F1-score: %.4f" % f1_score(y_test_knn, yhat_knn, average='weighted'))
+print("Jaccard score: %.4f" % jaccard_similarity_score(y_test_knn, yhat_knn))
+
+#Decision Tree
+#Train_Test_Split
+from sklearn.model_selection import train_test_split
+
+X_train_DT, X_test_DT, y_train_DT, y_test_DT = train_test_split(X, y, test_size=0.3, random_state=4)
+print ('Train set:', X_train_DT.shape,  y_train_DT.shape)
+print ('Test set:', X_test_DT.shape,  y_test_DT.shape)
+
+#Modeling
+from sklearn.tree import DecisionTreeClassifier
+
+LoanTree = DecisionTreeClassifier(criterion="entropy", max_depth = 4)
+LoanTree.fit(X_train_DT,y_train_DT)
+yhat_DT = LoanTree.predict(X_test_DT)
+
+#Accuracy_evaluation
+from sklearn import metrics
+from sklearn.metrics import f1_score
+from sklearn.metrics import jaccard_similarity_score
+
+print("DecisionTrees's Train set Accuracy: ", metrics.accuracy_score(y_train_DT, neigh.predict(X_train_DT)))
+print("DecisionTrees's Test set Accuracy: ", metrics.accuracy_score(y_test_DT, yhat_DT))
+
+print("Avg F1-score: %.4f" % f1_score(y_test_DT, yhat_DT, average='weighted'))
+print("Jaccard score: %.4f" % jaccard_similarity_score(y_test_DT, yhat_DT))
+
+#Support Vector Machine
+#Train_Test_Split
+X_train_SVM, X_test_SVM, y_train_SVM, y_test_SVM = train_test_split( X, y, test_size=0.3, random_state=4)
+print ('Train set:', X_train_SVM.shape,  y_train_SVM.shape)
+print ('Test set:', X_test_SVM.shape,  y_test_SVM.shape)
+
+#Modeling
+from sklearn import svm
+
+Loan_svm = svm.SVC(kernel='poly')
+Loan_svm.fit(X_train_SVM, y_train_SVM) 
+yhat_SVM = Loan_svm.predict(X_test_SVM)
+
+#Accuracy_evaluation
+from sklearn.metrics import f1_score
+from sklearn.metrics import jaccard_similarity_score
+
+print("SVM Train set Accuracy: ", metrics.accuracy_score(y_train_SVM, neigh.predict(X_train_SVM)))
+print("SVM Test set Accuracy: ", metrics.accuracy_score(y_test_SVM, yhat_SVM))
+
+print("Avg F1-score: %.4f" % f1_score(y_test_SVM, yhat_SVM, average='weighted'))
+print("Jaccard score: %.4f" % jaccard_similarity_score(y_test_SVM, yhat_SVM))
+
+#Logistic Regression
+#Train_Test_Split
+from sklearn.model_selection import train_test_split
+
+X_train_LR, X_test_LR, y_train_LR, y_test_LR = train_test_split( X, y, test_size=0.3, random_state=4)
+print ('Train set:', X_train_LR.shape,  y_train_LR.shape)
+print ('Test set:', X_test_LR.shape,  y_test_LR.shape)
+
+#Modeling
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix
+
+Loan_LR = LogisticRegression(C=0.01, solver='liblinear').fit(X_train_LR,y_train_LR)
+yhat_LR = Loan_LR.predict(X_test_LR)
+
+#Accuracy_evaluation
+from sklearn.metrics import f1_score
+from sklearn.metrics import jaccard_similarity_score
+from sklearn.metrics import log_loss
+
+print("LR Train set Accuracy: ", metrics.accuracy_score(y_train_LR, neigh.predict(X_train_LR)))
+print("LR Test set Accuracy: ", metrics.accuracy_score(y_test_LR, yhat_LR))
+
+print("Avg F1-score: %.4f" % f1_score(y_test_LR, yhat_LR, average='weighted'))
+print("Jaccard score: %.4f" % jaccard_similarity_score(y_test_LR, yhat_LR))
+
+#LogLoss score
+yhat_prob = Loan_LR.predict_proba(X_test_LR)
+print("LogLoss score: %.4f" % log_loss(y_test_LR, yhat_prob))
+
+#Model Evaluation using Test set
+from sklearn.metrics import jaccard_similarity_score
+from sklearn.metrics import f1_score
+from sklearn.metrics import log_loss
+
+##Load Test Data From CSV File
+sql_test = "SELECT * FROM loan_test"
+
+#Load Test set for evaluation
+test_df = df = pd.read_sql(sql_test, hdbi)
+test_df.head()
+
+test_df['due_date'] = pd.to_datetime(test_df['due_date'])
+test_df['effective_date'] = pd.to_datetime(test_df['effective_date'])
+test_df['dayofweek'] = test_df['effective_date'].dt.dayofweek
+test_df['weekend'] = test_df['dayofweek'].apply(lambda x: 1 if (x>3)  else 0)
+test_df['Gender'].replace(to_replace=['male','female'], value=[0,1],inplace=True)
+test_df.head()
+
+Feature_test = test_df[['Principal','terms','age','Gender','weekend']]
+Feature_test = pd.concat([Feature_test,pd.get_dummies(test_df['education'])], axis=1)
+Feature_test.drop(['Master or Above'], axis = 1,inplace=True)
+
+X_test_2 = Feature_test
+y_test_2 = test_df['loan_status'].values
+
+X_test_2= preprocessing.StandardScaler().fit(X_test_2).transform(X_test_2)
+
+Feature_test.head()
+
+#knn
+yhat_knn_test=neigh.predict(X_test_2)
+
+#Decision Tree
+yhat_DT_test = LoanTree.predict(X_test_2)
+
+#SVM
+yhat_SVM_test = Loan_svm.predict(X_test_2)
+
+#Logistic Regression
+yhat_LR_test = Loan_LR.predict(X_test_2)
+
+#LogLoss score_LR
+yhat_prob_test = Loan_LR.predict_proba(X_test_2)
+
+      
+        
+results = {'Algorithm': ['KNN', 'Decision Tree', 'SVM', 'LogisticRegression'],
+           'Jaccard': ['%.4f' % jaccard_similarity_score(y_test_2, yhat_knn_test), '%.4f' % jaccard_similarity_score(y_test_2, yhat_DT_test), '%.4f' % jaccard_similarity_score(y_test_2, yhat_SVM_test), '%.4f' % jaccard_similarity_score(y_test_2, yhat_LR_test)],
+           'F1-score': ['%.4f' % f1_score(y_test_2, yhat_knn_test, average='weighted'), '%.4f' % f1_score(y_test_2, yhat_DT_test, average='weighted'), '%.4f' % f1_score(y_test_2, yhat_SVM_test, average='weighted'), '%.4f' % f1_score(y_test_2, yhat_LR_test, average='weighted')],
+           'LogLoss': ['NA', 'NA', 'NA', '%.4f' % log_loss(y_test_2, yhat_prob_test)]
+          }
+
+results = pd.DataFrame(data=results).style.hide_index()
+results
+
+
+
+
+
+
+
+
